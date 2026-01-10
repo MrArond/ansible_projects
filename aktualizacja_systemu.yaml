@@ -1,9 +1,15 @@
 ---
-- name: Instalacja aktualizacji
-  hosts: AGH_RYBCZYNSKI
-  become: true
+- name: Upgrade Fedora System
+  hosts: localhost
+  become: yes
   tasks:
-    - name: Aktualizowanie pakietów
+    - name: Refresh DNF cache
+      ansible.builtin.dnf:
+        name: '*'
+        state: latest
+        update_cache: yes
+
+    - name: Upgrade all packages
       ansible.builtin.dnf:
         name: '*'
         state: latest
