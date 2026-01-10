@@ -1,6 +1,6 @@
 ---
 - name: Instalacja aktualizacji
-  hosts: localhost
+  hosts: AGH_RYBCZYNSKI
   become: true
   tasks:
     - name: Aktualizowanie pakietów
