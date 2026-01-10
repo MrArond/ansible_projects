@@ -1,7 +1,7 @@
 ---
 - name: Upgrade Fedora System
   hosts: localhost
-  become: yes
+  become: true
   tasks:
     - name: Refresh DNF cache
       ansible.builtin.dnf:
