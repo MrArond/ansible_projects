@@ -1,10 +1,11 @@
 - name: Upgrade Fedora System
-  hosts: AGH_RYBCZYNSKI
+  hosts: localhost
   become: true
   tasks:
     - name: Upgrade all packages
       ansible.builtin.dnf:
         name: '*'
         state: latest
+
 
 
