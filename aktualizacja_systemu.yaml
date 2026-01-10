@@ -1,4 +1,3 @@
----
 - name: Upgrade Fedora System
   hosts: localhost
   become: true
@@ -7,4 +6,4 @@
       ansible.builtin.dnf:
         name: '*'
         state: latest
-
+        use_backend: dnf5
