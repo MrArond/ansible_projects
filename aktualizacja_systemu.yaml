@@ -1,0 +1,9 @@
+---
+- name: Instalacja aktualizacji
+  hosts: localhost
+  become: true
+  tasks:
+    - name: Aktualizowanie pakietów
+      ansible.builtin.dnf:
+        name: '*'
+        state: latest
