@@ -1,16 +1,20 @@
+---
 - name: Upgrade Fedora System
   hosts: AGH_RYBCZYNSKI
   become: true
   tasks:
-    - name: Refresh DNF cache
-      ansible.builtin.dnf:
-        name: '*'
-        state: latest
-        update_cache: yes
-
-    - name: Upgrade all packages
-      ansible.builtin.dnf:
-        name: '*'
-        state: latest
-
-
+    - block:
+      - name: Upgrade all packages
+        ansible.builtin.dnf:
+          name: '*'
+          state: latest
+          update_cache: true
+      rescue:
+        - name: Powiadomienie Discord o bledzie
+          ansible.builtin.uri:
+            url: "https://discord.com/api/webhooks/1459874216773161026/YberaOgu8SZRGdOm_weXcdeFOt2I9NAPJvaXyZirfSc6Da1kx0D4UjPZrgxlZhrkGHRD"
+            method: POST
+            body_format: json
+            body:
+              content: "Błąd: Automatyczna kopia zapasowa na serwerze AGH nie powiodła się!"
+          ignore_errors: true
