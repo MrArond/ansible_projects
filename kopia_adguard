@@ -1,0 +1,52 @@
+- name: Backup AdGuard Home and Transfer to Ansible Server
+  hosts: AGH_RYBCZYNSKI
+  become: true
+  gather_facts: true
+  tasks:
+    - block:
+        - name: Utworzenie katalogu na kopie zapasowe
+          ansible.builtin.file:
+            path: /backup/adguardhome
+            state: directory
+            mode: '0755'
+
+        - name: Pobranie daty systemowej
+          ansible.builtin.set_fact:
+            backup_date: "{{ ansible_date_time.date }}"
+
+        - name: Tworzenie kopii zapasowej AdGuardHome
+          ansible.builtin.archive:
+            path: /adguardhome/AdGuardHome
+            dest: "/backup/adguardhome/adguardhome_{{ backup_date }}.tar.gz"
+            format: gz
+
+        - name: Sprawdzenie czy istnieje kopia
+          ansible.builtin.stat:
+            path: "/backup/adguardhome/adguardhome_{{ backup_date }}.tar.gz"
+          register: backup_file
+
+        - name: Jesli nie zostal utworzony
+          ansible.builtin.fail:
+            msg: "Nie utworzono backupu"
+          when: not backup_file.stat.exists
+
+        - name: Pobranie backupu na serwer Ansible
+          ansible.builtin.fetch:
+            src: "/backup/adguardhome/adguardhome_{{ backup_date }}.tar.gz"
+            dest: /home/jakubrybczynski/backups/AGH_RYBCZYNSKI_KOPIA/
+            flat: yes
+          register: fetch_result
+
+        - name: Udalo sie wyslac backup
+          ansible.builtin.debug:
+            msg: "Backup zostal wyslany"
+          when: fetch_result.changed
+      rescue:
+        - name: Powiadomienie Discord o bledzie
+          ansible.builtin.uri:
+            url: "https://discord.com/api/webhooks/1459874216773161026/YberaOgu8SZRGdOm_weXcdeFOt2I9NAPJvaXyZirfSc6Da1kx0D4UjPZrgxlZhrkGHRD"
+            method: POST
+            body_format: json
+            body:
+              content: "Błąd: Automatyczna kopia zapasowa na serwerze AGH nie powiodła się!"
+          ignore_errors: true
