@@ -1,20 +1,87 @@
 ---
-- name: Upgrade Fedora System
+- name: Bezpieczna aktualizacja Fedory
   hosts: AGH_RYBCZYNSKI
   become: true
+  serial: 1
+
+  vars:
+    discord_webhook_url: "https://discord.com/api/webhooks/1459874216773161026/YberaOgu8SZRGdOm_weXcdeFOt2I9NAPJvaXyZirfSc6Da1kx0D4UjPZrgxlZhrkGHRD"
+    security_only: false
+    reboot_if_needed: false
+
   tasks:
     - block:
-      - name: Upgrade all packages
-        ansible.builtin.dnf:
-          name: '*'
-          state: latest
-          update_cache: true
-      rescue:
-        - name: Powiadomienie Discord o bledzie
+        - name: Upewnij się, że to Fedora
+          ansible.builtin.assert:
+            that:
+              - ansible_facts.os_family == "RedHat"
+              - "'Fedora' in ansible_facts.distribution"
+            fail_msg: "Ten playbook jest pod Fedorę, a host wygląda na coś innego."
+
+        - name: Zainstaluj narzędzie do sprawdzania rebootu (needs-restarting)
+          ansible.builtin.dnf:
+            name: dnf-plugins-core
+            state: present
+
+        - name: Odśwież cache DNF
+          ansible.builtin.dnf:
+            update_cache: true
+
+        - name: Zapisz listę pakietów przed aktualizacją (log)
+          ansible.builtin.command: "rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\\n'"
+          register: pre_pkgs
+          changed_when: false
+
+        - name: Zapisz log pre-upgrade do pliku
+          ansible.builtin.copy:
+            dest: "/var/log/ansible-preupgrade-{{ ansible_date_time.iso8601_basic }}.txt"
+            content: "{{ pre_pkgs.stdout }}\n"
+            mode: "0644"
+
+        - name: Aktualizacja pakietów (bez usuwania, tylko update)
+          ansible.builtin.dnf:
+            name: "*"
+            state: latest
+            update_cache: true
+            update_only: true
+            allowerasing: false
+            security: "{{ security_only }}"
+          register: dnf_result
+
+        - name: Sprawdź czy wymagany reboot
+          ansible.builtin.command: "needs-restarting -r"
+          register: reboot_check
+          changed_when: false
+          failed_when: reboot_check.rc not in [0, 1]
+
+        - name: Powiadom Discord jeśli potrzebny reboot
           ansible.builtin.uri:
-            url: "https://discord.com/api/webhooks/1459874216773161026/YberaOgu8SZRGdOm_weXcdeFOt2I9NAPJvaXyZirfSc6Da1kx0D4UjPZrgxlZhrkGHRD"
+            url: "{{ discord_webhook_url }}"
             method: POST
             body_format: json
             body:
-              content: "Błąd: Automatyczna kopia zapasowa na serwerze AGH nie powiodła się!"
+              content: "Fedora update OK na {{ inventory_hostname }} | Reboot wymagany: {{ reboot_check.rc == 1 }}"
+          when: reboot_check.rc == 1
           ignore_errors: true
+
+        - name: Reboot (opcjonalnie)
+          ansible.builtin.reboot:
+            reboot_timeout: 900
+          when: reboot_if_needed and reboot_check.rc == 1
+
+      rescue:
+        - name: Powiadom Discord o błędzie (szczegóły)
+          ansible.builtin.uri:
+            url: "{{ discord_webhook_url }}"
+            method: POST
+            body_format: json
+            body:
+              content: >-
+                Fedora update FAILED na {{ inventory_hostname }}
+                | Task: {{ ansible_failed_task.name | default('unknown') }}
+                | Msg: {{ ansible_failed_result.msg | default(ansible_failed_result) }}
+          ignore_errors: true
+
+        - name: Zakończ playbook błędem
+          ansible.builtin.fail:
+            msg: "Aktualizacja nie powiodła się. Sprawdź logi i powiadomienie na Discord."
