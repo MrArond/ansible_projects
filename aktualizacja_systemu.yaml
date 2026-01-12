@@ -68,17 +68,6 @@
                 or
                 (has_dnf5.rc != 0 and (reboot_check_dnf4.rc | default(0)) == 1)
               }}
-
-        - name: Powiadom Discord o wyniku (jeśli reboot zalecany)
-          ansible.builtin.uri:
-            url: "{{ discord_webhook_url }}"
-            method: POST
-            body_format: json
-            status_code: [200, 204]
-            body:
-              content: "Fedora update OK na {{ inventory_hostname }}"
-          when: reboot_needed
-          ignore_errors: true
         - name: Reboot (opcjonalnie)
           ansible.builtin.reboot:
             reboot_timeout: 900
@@ -101,3 +90,4 @@
         - name: Zakończ playbook błędem
           ansible.builtin.fail:
             msg: "Aktualizacja nie powiodła się."
+
