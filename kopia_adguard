@@ -1,4 +1,4 @@
-- name: Backup AdGuard Home and Transfer to Ansible Server
+- name: Backup AdGuard
   hosts: AGH_RYBCZYNSKI
   become: true
   gather_facts: true
@@ -41,6 +41,7 @@
           ansible.builtin.debug:
             msg: "Backup zostal wyslany"
           when: fetch_result.changed
+
       rescue:
         - name: Powiadomienie Discord o bledzie
           ansible.builtin.uri:
