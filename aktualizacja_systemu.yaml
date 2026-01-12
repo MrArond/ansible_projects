@@ -1,44 +1,42 @@
 ---
-- name: Bezpieczna aktualizacja Fedory
+- name: Bezpieczna aktualizacja Fedory + reboot hint
   hosts: AGH_RYBCZYNSKI
   become: true
+  gather_facts: true
   serial: 1
 
   vars:
     discord_webhook_url: "https://discord.com/api/webhooks/1459874216773161026/YberaOgu8SZRGdOm_weXcdeFOt2I9NAPJvaXyZirfSc6Da1kx0D4UjPZrgxlZhrkGHRD"
     security_only: false
-    reboot_if_needed: false
+    reboot_if_needed: true
 
   tasks:
     - block:
-        - name: Upewnij się, że to Fedora
+        - name: Sprawdź czy to Fedora
           ansible.builtin.assert:
             that:
-              - ansible_facts.os_family == "RedHat"
-              - "'Fedora' in ansible_facts.distribution"
-            fail_msg: "Ten playbook jest pod Fedorę, a host wygląda na coś innego."
+              - ansible_facts.distribution == "Fedora"
+            fail_msg: "To nie jest Fedora."
 
-        - name: Zainstaluj narzędzie do sprawdzania rebootu (needs-restarting)
+        - name: Sprawdź czy jest dnf5
+          ansible.builtin.command: "command -v dnf5"
+          register: has_dnf5
+          changed_when: false
+          failed_when: false
+
+        - name: Doinstaluj pluginy do reboot-hint (dnf5)
+          ansible.builtin.dnf:
+            name: dnf5-plugins
+            state: present
+          when: has_dnf5.rc == 0
+
+        - name: Doinstaluj pluginy do reboot-hint (dnf4)
           ansible.builtin.dnf:
             name: dnf-plugins-core
             state: present
+          when: has_dnf5.rc != 0
 
-        - name: Odśwież cache DNF
-          ansible.builtin.dnf:
-            update_cache: true
-
-        - name: Zapisz listę pakietów przed aktualizacją (log)
-          ansible.builtin.command: "rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\\n'"
-          register: pre_pkgs
-          changed_when: false
-
-        - name: Zapisz log pre-upgrade do pliku
-          ansible.builtin.copy:
-            dest: "/var/log/ansible-preupgrade-{{ ansible_date_time.iso8601_basic }}.txt"
-            content: "{{ pre_pkgs.stdout }}\n"
-            mode: "0644"
-
-        - name: Aktualizacja pakietów (bez usuwania, tylko update)
+        - name: Aktualizacja pakietów (bez usuwania)
           ansible.builtin.dnf:
             name: "*"
             state: latest
@@ -48,40 +46,58 @@
             security: "{{ security_only }}"
           register: dnf_result
 
-        - name: Sprawdź czy wymagany reboot
-          ansible.builtin.command: "needs-restarting -r"
-          register: reboot_check
+        - name: Sprawdź czy wymagany reboot (dnf5)
+          ansible.builtin.command: "dnf5 needs-restarting"
+          register: reboot_check_dnf5
           changed_when: false
-          failed_when: reboot_check.rc not in [0, 1]
+          failed_when: reboot_check_dnf5.rc not in [0, 1]
+          when: has_dnf5.rc == 0
 
-        - name: Powiadom Discord jeśli potrzebny reboot
+        - name: Sprawdź czy wymagany reboot (dnf4)
+          ansible.builtin.command: "dnf needs-restarting -r"
+          register: reboot_check_dnf4
+          changed_when: false
+          failed_when: reboot_check_dnf4.rc not in [0, 1]
+          when: has_dnf5.rc != 0
+
+        - name: Ustal czy reboot jest potrzebny
+          ansible.builtin.set_fact:
+            reboot_needed: >-
+              {{
+                (has_dnf5.rc == 0 and (reboot_check_dnf5.rc | default(0)) == 1)
+                or
+                (has_dnf5.rc != 0 and (reboot_check_dnf4.rc | default(0)) == 1)
+              }}
+
+        - name: Powiadom Discord o wyniku (jeśli reboot zalecany)
           ansible.builtin.uri:
             url: "{{ discord_webhook_url }}"
             method: POST
             body_format: json
+            status_code: [200, 204]
             body:
-              content: "Fedora update OK na {{ inventory_hostname }} | Reboot wymagany: {{ reboot_check.rc == 1 }}"
-          when: reboot_check.rc == 1
+              content: "Fedora update OK na {{ inventory_hostname }}"
+          when: reboot_needed
           ignore_errors: true
-
         - name: Reboot (opcjonalnie)
           ansible.builtin.reboot:
             reboot_timeout: 900
-          when: reboot_if_needed and reboot_check.rc == 1
+          when: reboot_if_needed and reboot_needed
 
       rescue:
-        - name: Powiadom Discord o błędzie (szczegóły)
+        - name: Powiadom Discord o błędzie
           ansible.builtin.uri:
             url: "{{ discord_webhook_url }}"
             method: POST
             body_format: json
+            status_code: [200, 204]
             body:
               content: >-
-                Fedora update FAILED na {{ inventory_hostname }}
+                Aktualizacja NIEUDANA na {{ inventory_hostname }}
                 | Task: {{ ansible_failed_task.name | default('unknown') }}
                 | Msg: {{ ansible_failed_result.msg | default(ansible_failed_result) }}
           ignore_errors: true
 
         - name: Zakończ playbook błędem
           ansible.builtin.fail:
-            msg: "Aktualizacja nie powiodła się. Sprawdź logi i powiadomienie na Discord."
+            msg: "Aktualizacja nie powiodła się."
